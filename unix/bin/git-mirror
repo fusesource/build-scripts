@@ -1,0 +1,114 @@
+#!/usr/bin/python
+"""usage: git-mirror REPOSITORY [--prefix=PREFIX] [--repo=REPOSITORY] [--push=REMOTE]
+
+Copies all branches and tags from REPOSITORY into the current repository
+
+Options:
+  --prefix:   prefix for the branches 
+  --repo:     the local repository location
+  --pust:     the remote repository to push newly created branches/tags to
+"""
+
+from os import getcwd
+from subprocess import Popen, PIPE
+from sys import argv, exit
+from urlparse import urlparse
+from getopt import gnu_getopt, GetoptError
+
+class Git:
+  
+  def __init__(self, directory):
+    self.dir = directory
+  
+  def add_branch(self, name, start):
+    Popen(["git", "branch", name, start], stdout=PIPE, cwd=self.dir).communicate()[0]   
+    
+  def add_tag(self, name, commit):
+    Popen(["git", "tag", name, commit], stdout=PIPE, cwd=self.dir).communicate()[0]   
+    
+  def add_remote(self, name, remote):
+    Popen(["git", "remote", "add", name, remote], stdout=PIPE, cwd=self.dir).communicate()[0] 
+    
+  def checkout(self, branch):
+    Popen(["git", "checkout", branch], stdout=PIPE, cwd=self.dir).communicate()[0] 
+    
+  def fetch(self, name):
+    Popen(["git", "fetch", name], stdout=PIPE, cwd=self.dir).communicate()[0] 
+     
+  def has_remote(self, name):
+    return name in Popen(["git", "remote"], stdout=PIPE, cwd=self.dir).communicate()[0].splitlines()
+    
+  def remote_branches(self):
+    list = Popen(["git", "branch", "-r"], stdout=PIPE, cwd=self.dir).communicate()[0].splitlines()
+    return [(item.strip()) for item in list]
+    
+  def has_remote_branch(self, name):
+    return name in self.remote_branches()
+    
+  def local_branches(self):
+    list = Popen(["git", "branch"], stdout=PIPE, cwd=self.dir).communicate()[0].splitlines()
+    return [(item.lstrip("* ").rstrip()) for item in list]
+    
+  def has_local_branch(self, name):
+    return name in self.local_branches()
+  
+  def local_tags(self):
+    list = Popen(["git", "tag"], stdout=PIPE, cwd=self.dir).communicate()[0].splitlines()
+    return [item.strip() for item in list]
+    
+  def has_local_tag(self, name):
+    return name in self.local_tags()
+    
+  def merge(self, branch=""):
+    Popen(["git", "merge", branch], stdout=PIPE, cwd=self.dir).communicate()[0] 
+    
+  def push(self, remote, branch=""):
+    Popen(["git", "push", remote, branch], stdout=PIPE, cwd=self.dir).communicate()[0] 
+    
+
+try:
+   opts, args = gnu_getopt(argv[1:], "", ["prefix=", "repo=", "push="]) 
+   if len(args) < 1:
+     raise GetoptError("Required argument is missing")
+except GetoptError:           
+   print __doc__                          
+   exit(2)
+    
+# Parsing command arguments
+prefix=dict(opts).get("--prefix", "origin")
+repo=dict(opts).get("--repo", getcwd())
+push=dict(opts).get("--push", None)
+remote = args[0]
+
+git = Git(repo)
+if not git.has_remote(prefix):
+  print "-> Adding remote " + remote + " (" + prefix + ")"
+  git.add_remote(prefix, remote)
+  
+print "-> Fetching from " + remote
+git.fetch(prefix)
+
+for branch in git.remote_branches():
+  if branch.startswith(prefix+ "/"):
+    mirror = branch.replace(prefix + "/", prefix + "-")
+    
+    if "/tags/" in branch:
+      if not git.has_local_tag(mirror):
+        print "-> Creating tag %(mirror)s for %(branch)s" % {'branch': branch, 'mirror': mirror}
+        git.add_tag(mirror, branch)
+        if push:
+          git.push("origin", mirror)
+      continue
+    
+    if not git.has_local_branch(mirror):
+      print "-> Creating branch %(mirror)s to track %(branch)s" % {'branch': branch, 'mirror': mirror}
+      git.add_branch(mirror, branch)
+      if push:
+        git.push(push, mirror) 
+    
+    print "-> Updating " + mirror
+    git.checkout(mirror)
+    git.merge(branch)
+    if push:
+      git.push(push, mirror)
+

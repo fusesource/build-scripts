@@ -1,0 +1,61 @@
+#!/usr/bin/ruby
+
+require 'tempfile'
+
+USAGE = "usage: svnmerge-block-release.rb [-commit]
+         
+Block all merges from commits done the by maven-release-plugin.
+
+Command options:
+ -commit       Automatically commit the changes.
+"
+
+def usage
+  puts USAGE
+  Process.exit -1
+end
+
+def find_merges
+  puts "Finding commits done by maven-release-plugin"
+  temp_file = Tempfile.new('svnmerge_avail')
+  system("svnmerge avail -l > #{temp_file.path}")
+
+  result = Array.new
+
+  start_of_merge = false
+  revisions = Array.new
+   
+  IO.foreach(temp_file.path) do |line|
+    result = result + revisions if line =~ /\[maven-release-plugin\]/
+
+    # uncomment/alter this line to block other revisions
+    # result = result + revisions if line =~ /Rollback components 2010.01 release/
+  
+    if start_of_merge then
+      revisions = line.scan(/r[0-9]{4,5}/)
+      start_of_merge = false
+    end
+    
+    if line =~ /-{72}/ then
+      revisions = Array.new
+      start_of_merge = true
+    end
+  end
+  
+  result.map{|rev| rev.delete("r")}
+end
+
+def block(revisions)
+   puts "Blocking revisions #{revisions.join(',')}"
+   system("svnmerge block -r #{revisions.join(',')}")
+end
+
+usage() unless (ARGV.size == 0 or ARGV[0] == "-commit")
+
+revisions = find_merges
+block(revisions) unless revisions.empty?
+
+if (ARGV[0] == "-commit" and not revisions.empty?) then
+  puts "Committing changes"
+  system("svn ci -F svnmerge-commit-message.txt")
+end

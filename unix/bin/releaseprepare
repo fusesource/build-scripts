@@ -1,0 +1,7 @@
+#!/bin/bash
+export basedir=`pwd`
+export altGitURL=scm:git:file://$basedir
+
+export CMD="mvn -P release release:prepare -Drelease-altGitURL=$altGitURL"
+echo "Executing: $CMD"
+$CMD

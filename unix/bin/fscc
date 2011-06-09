@@ -1,0 +1,3 @@
+#!/bin/bash
+JAVA_OPTS="$JAVA_OPTS -Xmx512M -Xms64M" 
+fsc -reset -max-idle 0

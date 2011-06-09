@@ -1,0 +1,104 @@
+#!/usr/bin/ruby
+#= Overview
+# check_smx4_consistency check the features.xml files shipped with FUSE ESB for consistency
+#
+#= Usage
+#
+#  Usage:  check_smx4_consistency <SERVICEMIX_HOME>
+#
+#= Example
+#
+#  Example: check_smx4_consistency ~/opt/apache-servicemix-4.3.1-fuse-SNAPSHOT
+
+
+require 'rdoc/usage'
+
+RDoc::usage() if ARGV.empty?
+
+bundles = Hash.new
+features = Hash.new
+
+SMX4 = ARGV[0]
+SYSTEM = "#{SMX4}/system"
+
+def maven_uri(location)
+  relpath = location.gsub("#{SYSTEM}", "")
+  filename = relpath.split("/")[-1]
+  remainder = relpath.gsub(filename, "")[1..-2]
+  version = remainder.split("/")[-1]
+  group = remainder.split("/")[0..-3].join(".")
+  artifact = filename.partition("-#{version}")[0]
+  type = filename.partition("-#{version}")[2]
+  
+  if (type =~ /^\./) then
+    extension = type[1..-1]
+    "mvn:#{group}/#{artifact}/#{version}/#{extension}"
+  else
+    extensions = type[1..-1].split(".")
+    "mvn:#{group}/#{artifact}/#{version}/#{extensions[1]}/#{extensions[0]}"
+  end
+end
+
+def print_list(list)
+  index = 0
+  list.each { |item|
+    index = index + 1
+    puts "#{index}. #{item}"
+  }
+end
+
+puts "Scanning for features files in #{SYSTEM}"
+FEATURES = `find #{SYSTEM} -name *-features.xml`.split
+
+FEATURES.each { |file|
+  puts "- file: #{file}"
+  features[maven_uri(file)] = "system folder"
+  
+  File.open(file).each { |line|
+    line.scan(/<bundle>.*<\/bundle>/) { |element|
+      bundles[element.gsub(/<(\/)?bundle>/, "")] = File.basename(file)
+    }
+    line.scan(/<repository>.*<\/repository>/) { |element|
+	  uri = element.gsub(/<(\/)?repository>/, "")
+      features[uri] = File.basename(file) unless features.include?(uri)
+    }
+  }
+}
+
+puts ""
+puts "All bundles found..."
+index = 0
+print_list bundles.keys.sort.uniq.map { |bundle| 
+  "#{bundle} (defined in #{bundles[bundle]})"
+}
+
+puts ""
+puts "All features found..."
+print_list features.keys.sort.uniq.map { |feature|
+  "#{feature} (defined in #{features[feature]})"
+}
+
+puts ""
+puts "SNAPSHOT bundles found..."
+print_list bundles.keys.sort.uniq.select { |bundle| bundle =~ /SNAPSHOT/ }.each { |bundle|
+  "#{bundle} (defined in #{bundles[bundle]})" if bundle =~ /SNAPSHOT/
+}
+
+puts ""
+puts "Duplicate bundles found..."
+previous = ""
+bundles.keys.sort.uniq.each { |bundle|
+  if (previous.split("/")[0..-2] == bundle.split("/")[0..-2]) then
+  	puts "- #{bundle} defined in #{bundles[bundle]} clashes with"
+  	puts "  #{previous} defined in #{bundles[previous]}"
+  end
+  previous = bundle
+}
+
+puts ""
+puts "Features descriptors not found..."
+previous = ""
+
+features.each { |key,value|
+  puts "- #{key} found in #{value}, but not in system folder" unless value =~ /system folder/
+}

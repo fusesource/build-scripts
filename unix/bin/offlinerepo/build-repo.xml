@@ -1,0 +1,850 @@
+<!--
+   Copyright 2001-2009, Progress Software Corporation and/or its 
+   subsidiaries or affiliates.  All rights reserved.
+ 
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+ 
+       http://www.apache.org/licenses/LICENSE-2.0
+ 
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+--> 
+<project name="FUSE Offline Repository Script" basedir="." default="go.offline"> 
+ 
+    <!-- This should only run on Unix systems --> 
+    <fail message="This script should only be used on Unix systems"> 
+        <condition> 
+            <not> 
+                <os family="unix"/> 
+            </not> 
+        </condition> 
+    </fail> 
+ 
+    <property name="type" value="&lt;not specified&gt;"/> 
+    <property name="version" value="&lt;not specified&gt;"/> 
+ 
+ 
+    <!-- Specify directories used by this script --> 
+    <property name="script.dir" value="${user.dir}"/> 
+    <property name="logs.dir" value="${script.dir}/logs"/> 
+    <property name="sources.dir" value="${script.dir}/sources"/> 
+    <property name="maven.repo.dir" value="${script.dir}/maven_repo"/> 
+ 
+ 
+    <!-- Some useful properties --> 
+    <property environment="env"/> 
+    <fail message="Default maven not set.  Use either the MAVEN_HOME environment variable or the -Dmaven.home=&lt;path&gt; option."> 
+        <condition> 
+            <not> 
+                <or> 
+                    <isset property="maven.home"/> 
+                    <isset property="env.MAVEN_HOME"/> 
+                </or> 
+            </not> 
+        </condition> 
+    </fail> 
+ 
+    <property name="maven.home" value="${env.MAVEN_HOME}"/> 
+    <property name="source.svn.url" value="http://fusesource.com/forge/svn"/> 
+    <property name="cxf.svn.url" value="http://fusesource.com/forge/svn/fusesf"/> 
+    <property name="activemq.svn.url" value="http://fusesource.com/forge/svn/fusemq"/>
+    <property name="activemq.git.url" value="ssh://git@forge.fusesource.com/activemq.git"/>
+
+    <property name="servicemix.features.git.url" value="ssh://git@forge.fusesource.com/esbfeatures.git"/> 
+    <property name="servicemix.nmr.git.url" value="ssh://git@forge.fusesource.com/esbnmr.git"/> 
+    <property name="servicemix.components.git.url" value="ssh://git@forge.fusesource.com/esbcomponents.git"/> 
+    <property name="servicemix.archetypes.git.url" value="ssh://git@forge.fusesource.com/esbarchetypes.git"/>  
+    <property name="servicemix.utils.git.url" value="ssh://git@forge.fusesource.com/esbutils.git"/> 
+
+    <property name="camel.svn.url" value="http://fusesource.com/forge/svn/fuseeip"/> 
+    <property name="servicemix.svn.url" value="http://fusesource.com/forge/svn/fuseesb"/> 
+    <condition property="fail.on.error" value="false" else="true"> 
+        <equals arg1="${automated.build}" arg2="true"/> 
+    </condition> 
+ 
+ 
+    <!-- Specify maven homes for each project type.  By default, these will be just the
+         ${maven.home} value.  They can be overriden on the command line to specific 
+         versions (e.g. camel needs 2.0.9). --> 
+    <property name="cxf.maven" value="${maven.home}"/> 
+    <property name="camel.maven" value="${maven.home}"/> 
+    <property name="activemq.maven" value="${maven.home}"/> 
+    <property name="servicemix.maven" value="${maven.home}"/> 
+ 
+ 
+    <!-- The log file to write errors to --> 
+    <property name="error.log.file" value="${logs.dir}/errors.log"/> 
+    <!-- Load properties of a previous build --> 
+    <property name="build.summary.file" value="${logs.dir}/build.summary.properties"/> 
+ 
+    <property name="project.summary.file" value="${script.dir}/project.summary"/> 
+ 
+ 
+    <!-- Clean up the repository type in the case of the ServiceMix project --> 
+    <condition property="repo.name" value="fuseesb"> 
+        <or> 
+            <equals arg1="${type}" arg2="servicemix33"/> 
+            <equals arg1="${type}" arg2="servicemix34"/> 
+            <equals arg1="${type}" arg2="servicemix35"/> 
+            <equals arg1="${type}" arg2="servicemix40"/> 
+        </or> 
+    </condition> 
+    <condition property="repo.name" value="${type}"> 
+        <not> 
+            <isset property="repo.name"/> 
+        </not> 
+    </condition> 
+    <property name="repo.version" value="${version}"/> 
+ 
+ 
+    <!-- These properties will trigger the appropriate builds --> 
+    <condition property="cxf.repo"> 
+        <equals arg1="${type}" arg2="cxf"/> 
+    </condition> 
+    <condition property="activemq.repo"> 
+        <equals arg1="${type}" arg2="activemq"/> 
+    </condition> 
+    <condition property="camel.repo"> 
+        <equals arg1="${type}" arg2="camel"/> 
+    </condition> 
+    <condition property="servicemix33.repo"> 
+        <equals arg1="${type}" arg2="servicemix33"/> 
+    </condition> 
+    <condition property="servicemix34.repo"> 
+        <equals arg1="${type}" arg2="servicemix34"/> 
+    </condition> 
+    <condition property="servicemix35.repo"> 
+        <equals arg1="${type}" arg2="servicemix35"/> 
+    </condition> 
+    <condition property="servicemix40.repo"> 
+        <equals arg1="${type}" arg2="servicemix40"/> 
+    </condition> 
+ 
+ 
+    <!-- NOTE: We are using targets here instead of macrodefs so that we don't have 
+         property values hanging around and interfering with later calls to these
+         target --> 
+    <target name="log.errors" if="error.message"> 
+        <echo message="${error.message}"/> 
+        <echo message="${error.message}" file="${error.log.file}" append="true"/> 
+    </target> 
+ 
+    <target name="detect.errors"> 
+        <!-- Default the result property --> 
+        <property name="result" value="0"/> 
+        
+        <condition property="error.message" value="REPO_BUILD_ERROR :: ${task}${line.separator}"> 
+            <not> 
+                <equals arg1="0" arg2="${result}"/> 
+            </not> 
+        </condition> 
+        <antcall target="log.errors"/> 
+    </target> 
+ 
+    <macrodef name="svn-checkout"> 
+        <attribute name="url"/> 
+        <attribute name="dest"/> 
+        <sequential> 
+            <exec executable="svn"
+                  dir="${sources.dir}"> 
+                <arg value="co"/>       
+	 			<arg value="--username"/>
+				<arg value="hudson"/>
+				<arg value="--password"/>
+				<arg value="4uds0n"/>    
+				<arg value="--non-interactive"/>				
+                <arg value="@{url}"/> 
+                <arg value="@{dest}"/> 
+            </exec> 
+        </sequential> 
+    </macrodef>
+ 
+    <macrodef name="git-clone"> 
+        <attribute name="url"/> 	
+        <attribute name="version"/> 
+        <attribute name="dest"/> 
+        <sequential>             
+	        <echo message="Cloning Git repo @{url}..."/> 
+            <exec executable="git"
+                dir="${sources.dir}"> 
+                <arg value="clone"/>       
+	 			<arg value="@{url}"/>
+				<arg value="@{dest}"/>    
+            </exec>                                      
+        	<echo message="Checking out Git branch @{version}..."/> 
+            <exec executable="git"
+                dir="@{dest}"> 
+                <arg value="checkout"/>       
+	 			<arg value="@{version}"/>
+            </exec> 
+        </sequential> 
+    </macrodef> 
+ 
+ 
+    <!-- Wrap the two maven build commands needed to produce a repo into one call --> 
+    <macrodef name="mvn-build"> 
+        <attribute name="id"/> 
+        <attribute name="dir"/>
+        <attribute name="profiles" default="-Pnone"/> 
+        <attribute name="mavenHome" default="${maven.home}"/> 
+ 
+        <sequential> 
+            <!-- Do a clean here first to handle cases where we have not checked out
+                 code but are using sources from a previous build. --> 
+            <echo message="Running a clean on the sources..."/> 
+            <exec executable="@{mavenHome}/bin/mvn" dir="@{dir}"
+                  failonerror="false"> 
+                <arg value="-Dmaven.repo.local=${maven.repo.dir}"/>
+                <arg value="clean"/> 
+            </exec> 
+ 
+            <!-- Use a standard set of options for the maven command --> 
+            <echo message="Running install goal for @{id}"/> 
+            <exec executable="@{mavenHome}/bin/mvn" dir="@{dir}"
+                  failonerror="${fail.on.error}" resultproperty="install.result"
+                  errorproperty="install.error"> 
+				<env key="MAVEN_OPTS" value="-ea -XX:MaxPermSize=256m -Xmx1024M -Dmaven.artifact.threads=5"/>
+                <arg value="@{profiles}"/> 
+                <!-- <arg value="-DskipTests=true"/>  -->
+                <arg value="-Dtest=x"/> 
+                <arg value="-Dmaven.test.failure.ignore=true"/> 
+                <!-- <arg value="-fae"/>  -->
+                <arg value="-Dgpg.skip=true"/> 
+                <arg value="-Dmaven.repo.local=${maven.repo.dir}"/> 
+                <arg value="dependency:go-offline"/> 
+                <arg value="install"/> 
+                <arg value="source:jar"/> 
+            </exec> 
+ 
+            <!-- Check for errors --> 
+            <antcall target="detect.errors"> 
+                <param name="task" value="Running install goal for @{id}"/> 
+                <param name="result" value="${install.result}"/> 
+                <param name="error" value="${install.error}"/> 
+            </antcall> 
+ 
+            <!-- Run the eclipse:eclipse goal next --> 
+            <echo message="Running eclipse goal for @{id}"/> 
+            <exec executable="@{mavenHome}/bin/mvn" dir="@{dir}"
+                  failonerror="${fail.on.error}" resultproperty="eclipse.result"
+                  errorproperty="eclipse.error"> 
+                <arg value="-Dmaven.test.failure.ignore=true"/> 
+                <!-- <arg value="-fae"/>  -->
+                <arg value="-Dgpg.skip=true"/> 
+                <arg value="-Dmaven.repo.local=${maven.repo.dir}"/> 
+                <arg value="eclipse:eclipse"/> 
+            </exec> 
+ 
+            <!-- Check for errors --> 
+            <antcall target="detect.errors"> 
+                <param name="task" value="Running eclipse goal for @{id}"/> 
+                <param name="result" value="${eclipse.result}"/> 
+                <param name="error" value="${eclipse.error}"/> 
+            </antcall> 
+ 
+            <!-- Check if we completed successfully, mark in the build summary log. --> 
+            <condition property="build.result" value="@{id}.complete=true${line.separator}" else=""> 
+                <and> 
+                    <equals arg1="${install.result}" arg2="0"/> 
+                    <equals arg1="${eclipse.result}" arg2="0"/> 
+                </and> 
+            </condition> 
+            <echo message="${build.result}" file="${build.summary.file}" append="true"/> 
+        </sequential> 
+    </macrodef> 
+ 
+ 
+    <!-- 
+         The following targets are responsible for checking out the source for a 
+         particular project and building it according to the needs of the offline
+         repository.
+         
+         Add new targets here for any new projects that will be part of an
+         offline repository.   For example, if a newer version of CXF has different
+         build rules, add a new target such as 'build.cxf30.source' with the newer 
+         rules.
+    --> 
+ 
+    <!-- Builds the source for the CXF (2.x) project --> 
+    <target name="build.cxf.source" unless="cxf.complete"> 
+        <echo message="Building CXF source... [version ${cxf.version}]"/> 
+        <!-- <delete dir="${sources.dir}/cxf"/>  -->
+        <svn-checkout url="${cxf.svn.url}/tags/cxf-${cxf.version}" dest="${sources.dir}/cxf"/> 
+      
+        <!-- We are using the profiles option to pass in extra arguments.  We should
+             have another parameter for this in the future --> 
+        <mvn-build id="cxf" dir="${sources.dir}/cxf" profiles="-Pfastinstall" mavenHome="${cxf.maven}"/> 
+    </target> 
+ 
+    
+    <!-- Builds the source for the CXF Distribution (2.x) project --> 
+    <target name="build.cxf.distribution.source" unless="cxf.distribution.complete"> 
+        <echo message="Building CXF Distribution source..."/> 
+        <!-- No need to do checkout.  Assume this won't be called without calling
+             build.cxf.source first, which will do the checkout --> 
+ 
+        <mvn-build id="cxf.distribution" dir="${sources.dir}/cxf/distribution" mavenHome="${cxf.maven}"/> 
+    </target> 
+ 
+    
+    <!-- Builds the source for the Camel (1.x) project --> 
+    <target name="build.camel.source" unless="camel.complete"> 
+        <echo message="Building Camel source... [version ${camel.version}]"/> 
+        <!-- <delete dir="${sources.dir}/camel"/>  -->
+        <svn-checkout url="${camel.svn.url}/tags/camel-${camel.version}" dest="${sources.dir}/camel"/> 
+      
+        <mvn-build id="camel" dir="${sources.dir}/camel" mavenHome="${camel.maven}" profiles="-Pnochecks"/> 
+    </target> 
+ 
+    
+    <!-- Builds the source for the ActiveMQ (5.x) project --> 
+    <target name="build.activemq.source" unless="activemq.complete"> 
+        <echo message="Building ActiveMQ source... [version ${activemq.version}]"/> 
+        <!-- <delete dir="${sources.dir}/activemq"/>  -->
+        <git-clone url="${activemq.git.url}" version="activemq-${activemq.version}" dest="${sources.dir}/activemq"/> 
+      
+        <mvn-build id="activemq" dir="${sources.dir}/activemq" mavenHome="${activemq.maven}"/> 
+    </target> 
+ 
+    
+    <!-- Builds the source for the ServiceMix 3.3.x project.  Runs the step 1 profile. --> 
+    <target name="build.servicemix33.step1.source" unless="servicemix33.step1.complete"> 
+        <echo message="Building ServiceMix 3.3.x source... [step1 profile; version ${servicemix.version}]"/> 
+        <!-- <delete dir="${sources.dir}/servicemix"/>  -->
+        <svn-checkout url="${servicemix.svn.url}/tags/servicemix-${servicemix.version}"
+                      dest="${sources.dir}/servicemix"/> 
+      
+        <mvn-build id="servicemix33.step1" dir="${sources.dir}/servicemix" mavenHome="${servicemix.maven}"
+                   profiles="-Pstep1"/> 
+    </target> 
+ 
+    
+    <!-- Builds the source for the ServiceMix 3.3.x project.  Runs the step 2 profile. --> 
+    <target name="build.servicemix33.step2.source" unless="servicemix33.step2.complete"> 
+        <echo message="Building ServiceMix 3.3.x source... [step2 profile]"/> 
+ 
+        <mvn-build id="servicemix33.step2" dir="${sources.dir}/servicemix" mavenHome="${servicemix.maven}"
+                   profiles="-Pstep2"/> 
+    </target> 
+ 
+    
+    <!-- Builds the source for the ServiceMix 3.4.x project --> 
+    <target name="build.servicemix34.source" unless="servicemix34.complete"> 
+        <echo message="Building ServiceMix 3.4.x source... [version ${servicemix.version}]"/> 
+ 
+        <!-- <delete dir="${sources.dir}/servicemix"/>  -->
+        <svn-checkout url="${servicemix.svn.url}/tags/servicemix-${servicemix.version}"
+                      dest="${sources.dir}/servicemix"/> 
+ 
+        <mvn-build id="servicemix34" dir="${sources.dir}/servicemix" mavenHome="${servicemix.maven}"/> 
+    </target> 
+ 
+    <!-- Builds the source for the ServiceMix 3.5.x project --> 
+    <target name="build.servicemix35.source" unless="servicemix35.complete"> 
+        <echo message="Building ServiceMix 3.5.x source... [version ${servicemix.version}]"/> 
+ 
+        <!-- <delete dir="${sources.dir}/servicemix"/>  -->
+        <svn-checkout url="${servicemix.svn.url}/tags/servicemix-${servicemix.version}"
+                      dest="${sources.dir}/servicemix"/> 
+ 
+        <mvn-build id="servicemix35" dir="${sources.dir}/servicemix" mavenHome="${servicemix.maven}"/> 
+    </target> 
+ 
+ 
+    <!-- Builds the source for the ServiceMix Components project used in 3.4.x and 4.x--> 
+    <target name="build.servicemix.components.source" unless="components.complete"> 
+        <echo message="Building ServiceMix Components source... [version ${components.version}]"/> 
+ 
+        <!-- <delete dir="${sources.dir}/components"/>  -->
+        <!-- <svn-checkout url="${servicemix.svn.url}/components/tags/components-pom-${components.version}"
+                      dest="${sources.dir}/components"/>  -->
+		
+		<git-clone url="${servicemix.components.git.url}" version="components-${components.version}" dest="${sources.dir}/components"/>  
+        
+		<mvn-build id="components" dir="${sources.dir}/components" mavenHome="${servicemix.maven}"/> 
+    </target> 
+ 
+ 
+    <!-- Builds the source for the ServiceMix Archetypes project used in 3.4.x and 4.x--> 
+    <target name="build.servicemix.archetypes.source" unless="archetypes.complete"> 
+        <echo message="Building ServiceMix Archetypes source... [version ${archetypes.version}]"/> 
+ 
+        <!-- <delete dir="${sources.dir}/archetypes"/>  -->
+        <!-- <svn-checkout url="${servicemix.svn.url}/archetypes/tags/archetypes-${archetypes.version}"
+                      dest="${sources.dir}/archetypes"/>  -->
+        
+        <git-clone url="${servicemix.components.git.url}" version="components-${components.version}" dest="${sources.dir}/components"/>  
+ 
+        <mvn-build id="archetypes" dir="${sources.dir}/archetypes" mavenHome="${servicemix.maven}"/> 
+    </target> 
+ 
+ 
+    <!-- Builds the source for the ServiceMix 4.x Features project --> 
+    <target name="build.servicemix40.features.source" unless="features.complete"> 
+        <echo message="Building ServiceMix Features source... [version ${features.version}]"/> 
+ 
+        <!-- <delete dir="${sources.dir}/features"/>  -->
+        <!-- <svn-checkout url="${servicemix.svn.url}/smx4/features/tags/features-${features.version}"
+                      dest="${sources.dir}/features"/>  -->            
+
+        <git-clone url="${servicemix.features.git.url}" version="features-${features.version}" dest="${sources.dir}/features"/>  
+ 
+        <mvn-build id="features" dir="${sources.dir}/features" mavenHome="${servicemix.maven}"/> 
+    </target> 
+
+    <!-- Builds the source for the ServiceMix 4.x Features project --> 
+    <target name="build.servicemix40.overrides.source" unless="overrides.complete"> 
+        <echo message="Building ServiceMix Feature Overrides... [version ${features.version}]"/> 
+ 
+        <!-- <delete dir="${sources.dir}/features"/>  -->
+        <!-- <svn-checkout url="${servicemix.svn.url}/smx4/features/tags/features-${features.version}" -->
+                      <!-- dest="${sources.dir}/features"/>  -->
+                                                                 
+        <!-- <mvn-build id="features" dir="${sources.dir}/features/target/" mavenHome="${servicemix.maven}"/>  -->
+    </target> 
+ 
+    <!-- Builds the source for the ServiceMix 4.x NMR project --> 
+    <target name="build.servicemix40.nmr.source" unless="nmr.complete"> 
+        <echo message="Building ServiceMix Features source... [version ${nmr.version}]"/> 
+ 
+        <!-- <delete dir="${sources.dir}/nmr"/>  -->
+        <!-- <svn-checkout url="${servicemix.svn.url}/smx4/nmr/tags/nmr-parent-${nmr.version}"
+                      dest="${sources.dir}/nmr"/>  -->
+
+        <git-clone url="${servicemix.nmr.git.url}" version="nmr-${nmr.version}" dest="${sources.dir}/nmr"/>  
+ 
+        <mvn-build id="nmr" dir="${sources.dir}/nmr" mavenHome="${servicemix.maven}"/> 
+    </target> 
+ 
+ 
+    <!-- 
+         The following targets determine which depenency projects are included in 
+         an offline repository for a given project type.  These should only call
+         the appropriate 'build.*' targets which will perform the actual source
+         checkouts and builds.
+ 
+         If we need to support a new repository type (e.g. CXF 3.x), add a new 
+         target here and call the build steps that would be needed 
+    --> 
+ 
+    <!-- Builds an offline repository for CXF --> 
+    <target name="create.cxf.repo" if="cxf.repo"> 
+        <antcall target="build.cxf.source"> 
+            <param name="cxf.version" value="${project.version}"/> 
+        </antcall> 
+        <antcall target="build.cxf.distribution.source"/> 
+ 
+        <!-- Write the versions used in the repo to a summary file which will be used by the testing --> 
+        <echo message="cxf.version=${project.version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+    </target> 
+ 
+ 
+    <!-- Builds an offline repository for Camel --> 
+    <target name="create.camel.repo" if="camel.repo"> 
+        <antcall target="build.cxf.source"> 
+            <param name="cxf.version" value="${project.properties.cxf-version}"/> 
+        </antcall> 
+        <antcall target="build.cxf.distribution.source"/> 
+ 
+        <antcall target="build.camel.source"> 
+            <param name="camel.version" value="${project.version}"/> 
+        </antcall> 
+ 
+        <!-- Write the versions used in the repo to a summary file which will be used by the testing --> 
+        <echo message="cxf.version=${project.properties.cxf-version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="camel.version=${project.version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+    </target> 
+ 
+ 
+    <!-- Builds an offline repository for ActiveMQ --> 
+    <target name="create.activemq.repo" if="activemq.repo"> 
+        <antcall target="build.camel.source"> 
+            <param name="camel.version" value="${project.properties.camel-version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.activemq.source"> 
+            <param name="activemq.version" value="${project.version}"/> 
+        </antcall> 
+ 
+        <!-- Write the versions used in the repo to a summary file which will be used by the testing --> 
+        <echo message="camel.version=${project.properties.camel-version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="activemq.version=${project.version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+    </target> 
+ 
+ 
+    <!-- Builds an offline repository for ServiceMix 3.3.x --> 
+    <target name="create.servicemix33.repo" if="servicemix33.repo"> 
+        <antcall target="build.cxf.source"> 
+            <param name="cxf.version" value="${project.properties.cxf-version}"/> 
+        </antcall> 
+        <antcall target="build.cxf.distribution.source"/> 
+       
+        <antcall target="build.camel.source"> 
+            <param name="camel.version" value="${project.properties.camel-version}"/> 
+        </antcall> 
+        
+        <antcall target="build.activemq.source"> 
+            <param name="activemq.version" value="${project.properties.activemq-version}"/> 
+        </antcall> 
+        
+        <antcall target="build.servicemix33.step1.source"> 
+            <param name="servicemix.version" value="${project.version}"/> 
+        </antcall> 
+        <antcall target="build.servicemix33.step2.source"/> 
+ 
+        <!-- Write the versions used in the repo to a summary file which will be used by the testing --> 
+        <echo message="cxf.version=${project.properties.cxf-version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="camel.version=${project.properties.camel-version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="activemq.version=${project.properties.activemq-version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="servicemix.version=${project.version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="servicemix.type=3.3${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+    </target> 
+ 
+ 
+    <!-- Builds an offline repository for ServiceMix 3.4.x --> 
+    <target name="create.servicemix34.repo" if="servicemix34.repo"> 
+        <antcall target="build.cxf.source"> 
+            <param name="cxf.version" value="${project.properties.cxf-version}"/> 
+        </antcall> 
+        <antcall target="build.cxf.distribution.source"/> 
+       
+        <antcall target="build.camel.source"> 
+            <param name="camel.version" value="${project.properties.camel-version}"/> 
+        </antcall> 
+        
+        <antcall target="build.activemq.source"> 
+            <param name="activemq.version" value="${project.properties.activemq-version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.servicemix.components.source"> 
+            <param name="components.version" value="${project.properties.component-version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.servicemix.archetypes.source"> 
+            <param name="archetypes.version" value="${project.properties.component-version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.servicemix34.source"> 
+            <param name="servicemix.version" value="${project.version}"/> 
+        </antcall> 
+ 
+        <!-- Write the versions used in the repo to a summary file which will be used by the testing --> 
+        <echo message="cxf.version=${project.properties.cxf-version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="camel.version=${project.properties.camel-version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="activemq.version=${project.properties.activemq-version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="servicemix.version=${project.version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="servicemix.type=3.4${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+    </target> 
+ 
+    <!-- Builds an offline repository for ServiceMix 3.5.x --> 
+    <target name="create.servicemix35.repo" if="servicemix35.repo"> 
+        <antcall target="build.cxf.source"> 
+            <param name="cxf.version" value="${project.properties.cxf-version}"/> 
+        </antcall> 
+        <antcall target="build.cxf.distribution.source"/> 
+ 
+        <antcall target="build.camel.source"> 
+            <param name="camel.version" value="${project.properties.camel-version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.activemq.source"> 
+            <param name="activemq.version" value="${project.properties.activemq-version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.servicemix.components.source"> 
+            <param name="components.version" value="${project.properties.component-version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.servicemix.archetypes.source"> 
+            <param name="archetypes.version" value="${project.properties.component-version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.servicemix35.source"> 
+            <param name="servicemix.version" value="${project.version}"/> 
+        </antcall> 
+ 
+        <!-- Write the versions used in the repo to a summary file which will be used by the testing --> 
+        <echo message="cxf.version=${project.properties.cxf-version}${line.separator}"
+              file="${project.summary.file}" append="true"/> 
+        <echo message="camel.version=${project.properties.camel-version}${line.separator}"
+              file="${project.summary.file}" append="true"/> 
+        <echo message="activemq.version=${project.properties.activemq-version}${line.separator}"
+              file="${project.summary.file}" append="true"/> 
+        <echo message="servicemix.version=${project.version}${line.separator}"
+              file="${project.summary.file}" append="true"/> 
+        <echo message="servicemix.type=3.4${line.separator}"
+              file="${project.summary.file}" append="true"/> 
+    </target> 
+ 
+    <!-- Builds an offline repository for ServiceMix 4.x --> 
+    <target name="create.servicemix40.repo" if="servicemix40.repo"> 
+        <antcall target="build.cxf.source"> 
+            <param name="cxf.version" value="${project.properties.cxf.version}"/> 
+        </antcall> 
+        <antcall target="build.cxf.distribution.source"/> 
+       
+        <antcall target="build.camel.source"> 
+            <param name="camel.version" value="${project.properties.camel.version}"/> 
+        </antcall> 
+        
+        <antcall target="build.activemq.source"> 
+            <param name="activemq.version" value="${project.properties.activemq.version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.servicemix.components.source"> 
+            <param name="components.version" value="${project.properties.servicemix-components-version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.servicemix.archetypes.source"> 
+            <param name="archetypes.version" value="${project.properties.servicemix-components-version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.servicemix40.nmr.source"> 
+            <param name="nmr.version" value="${project.properties.servicemix.nmr.version}"/> 
+        </antcall> 
+ 
+        <antcall target="build.servicemix40.features.source"> 
+            <param name="features.version" value="${project.version}"/> 
+        </antcall> 
+
+        <antcall target="build.servicemix40.overrides.source"> 
+            <param name="features.version" value="${project.version}"/> 
+        </antcall> 
+ 
+        <!-- Write the versions used in the repo to a summary file which will be used by the testing --> 
+        <echo message="cxf.version=${project.properties.cxf.version}${line.separator}"
+              file="${project.summary.file}" append="true"/> 
+        <echo message="camel.version=${project.properties.camel.version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="activemq.version=${project.properties.activemq.version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="servicemix.version=${project.version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="servicemix.type=4.0${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+    </target> 
+ 
+ 
+    <!-- Cleans up additional resources if we are building a different version from the one in the
+         project summary file --> 
+    <target name="do.full.clean" if="full.clean"> 
+        <echo message="Repository version differs from previous build.  Doing a full clean."/> 
+        <echo/> 
+        <delete file="${build.summary.file}"/> 
+        <!-- <delete dir="${sources.dir}"/>  -->
+        <!-- <delete dir="${maven.repo.dir}"/>  -->
+    </target> 
+ 
+ 
+    <!-- Initialize anything that we need --> 
+    <target name="init"> 
+        <echo message="Default Maven will be: ${maven.home}"/> 
+        <echo/> 
+ 
+        <!-- Fail if we don't provide the repository type or version --> 
+        <fail message="Repository type or version is missing. [Type=${type}; Version=${version}]"> 
+            <condition> 
+                <or> 
+                    <contains string="${type}" substring="not specified"/> 
+                    <contains string="${version}" substring="not specified"/> 
+                </or> 
+            </condition> 
+        </fail> 
+ 
+        <!-- Load the previous properties to determine if we need to perform a full clean --> 
+        <property file="${project.summary.file}" prefix="previous"/> 
+        <condition property="full.clean"> 
+            <not> 
+                <equals arg1="${repo.version}" arg2="${previous.repo.version}"/> 
+            </not> 
+        </condition> 
+        <antcall target="do.full.clean"/> 
+ 
+        <mkdir dir="${sources.dir}"/> 
+        <mkdir dir="${logs.dir}"/> 
+        <delete file="${error.log.file}"/> 
+        <delete file="${script.dir}/${version}-offline-repo.tgz"/> 
+        <delete file="${project.summary.file}"/> 
+    </target> 
+ 
+ 
+    <!-- We are not allowed to ship these JARs with the offline repository --> 
+    <target name="remove.restricted.jars"> 
+        <delete dir="${maven.repo.dir}/cobertura"/> 
+        <delete dir="${maven.repo.dir}/net/sourceforge/cobertura"/> 
+        <!-- TODO: Add other restricted JARs here... --> 
+    </target> 
+ 
+ 
+    <!-- The main target for the script. --> 
+    <target name="go.offline"> 
+ 
+        <!-- Don't depend on init...so that we don't keep properties set in that target --> 
+        <antcall target="init"/> 
+ 
+        <!-- Print summary of what we are going to do --> 
+        <echo message="Building offline repository for ${repo.name} ${repo.version}."/> 
+      
+        <!-- For ESB 4, this is in a features project.  Otherwise, use the default url. 
+             NOTE: We won't use an else here in case there are other exceptions. --> 
+        <condition property="root.pom.url"
+                   value="${servicemix.svn.url}/tags/servicemix-${repo.version}-fuse/pom.xml"> 
+            <equals arg1="${type}" arg2="servicemix34"/> 
+        </condition> 
+        <condition property="root.pom.url"
+                   value="${servicemix.svn.url}/tags/servicemix-${repo.version}/pom.xml"> 
+            <equals arg1="${type}" arg2="servicemix35"/> 
+        </condition> 
+        <condition property="root.pom.url"
+                   value="${servicemix.svn.url}/smx4/features/tags/features-${repo.version}/pom.xml"> 
+            <equals arg1="${type}" arg2="servicemix40"/> 
+        </condition> 
+        <property name="root.pom.url" 
+                  value="${source.svn.url}/${repo.name}/tags/${repo.name}-${repo.version}/pom.xml"/> 
+ 
+        <!-- Checkout the source pom.xml for the main project in the repository -->
+		<echo message="Checking out project pom from:  ${root.pom.url}"/>
+    	<git-clone url="${servicemix.features.git.url}" version="features-${features.version}" dest="${sources.dir}/features"/>  
+        <!-- <exec executable="svn" failonerror="false" output="${sources.dir}/repo.pom.xml"> 
+            <arg value="cat"/>            
+ 			<arg value="--username"/>
+			<arg value="hudson"/>
+			<arg value="--password"/>
+			<arg value="4uds0n"/>    
+			<arg value="--non-interactive"/>			
+            <arg value="${root.pom.url}"/>
+        </exec>  -->         
+		
+		<copy file="${sources.dir}/features/pom.xml" tofile="${sources.dir}/repo.pom.xml"/>
+		
+        <fail message="Unable to read pom.xml from ${repo.name} ${repo.version} (via svn cat)"> 
+            <condition> 
+                <not> 
+                    <available file="${sources.dir}/repo.pom.xml"/> 
+                </not> 
+            </condition> 
+        </fail> 
+ 
+        <!-- Load properties from the pom.xml file in the main project --> 
+        <xmlproperty file="${sources.dir}/repo.pom.xml"/> 
+        <fail message="Failed to load ${sources.dir}/${repo.name}/pom.xml file."> 
+            <condition> 
+                <not> 
+                    <isset property="project.version"/> 
+                </not> 
+            </condition> 
+        </fail> 
+ 
+        <!-- Write the information about the repo to a summary file which will be used by the testing --> 
+        <echo message="repo.type=${repo.name}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+        <echo message="repo.version=${repo.version}${line.separator}" 
+              file="${project.summary.file}" append="true"/> 
+ 
+        <!-- Load the summary from a previous build and call the build targets. --> 
+        <property file="${build.summary.file}"/> 
+        <antcall target="create.cxf.repo"/> 
+        <antcall target="create.activemq.repo"/> 
+        <antcall target="create.camel.repo"/> 
+        <antcall target="create.servicemix33.repo"/> 
+        <antcall target="create.servicemix34.repo"/> 
+        <antcall target="create.servicemix35.repo"/> 
+        <antcall target="create.servicemix40.repo"/> 
+        
+        <!-- Generate any missing .sha1 and .md5 files --> 
+        <!-- TODO: Implement if requested --> 
+ 
+        <!-- Fail if we have encountered any errors up to this point.  We want to be able to go
+             back and resolve these. --> 
+        <loadfile property="detected.errors" srcFile="${error.log.file}" failonerror="false"/> 
+        <fail message="There were errors creating the repository.${line.separator}${detected.errors}"> 
+            <condition> 
+                <and> 
+                    <available file="${error.log.file}"/> 
+                    <length file="${error.log.file}" when="greater" length="0"/> 
+                </and> 
+            </condition> 
+        </fail> 
+ 
+        <!-- Remove JARs we are not allowed to ship --> 
+        <antcall target="remove.restricted.jars"/> 
+ 
+        <!-- Package up the repository.  Do not use the ${maven.repo.dir} property otherwise
+             it would contain full path in the archive file.  --> 
+        <tar destfile="${script.dir}/${version}-offline-repo.tgz" basedir="${script.dir}" 
+             compression="gzip" includes="maven_repo/**"/> 
+         
+        <!-- Copy repository to a known location --> 
+        <!-- <exec executable="hostname" failifexecutionfails="false" failonerror="false" outputproperty="host.name"/> 
+        <property name="repo.location" value="file:///net/${host.name}${script.dir}/${version}-offline-repo.tgz"/> 
+        <echo message="repo.location=${repo.location}${line.separator}" 
+              file="${project.summary.file}" append="true"/>  -->
+ 
+        <!-- Remove anything we no longer need after a sucessful build --> 
+        <!-- <delete file="${build.summary.file}"/>  -->
+        <!-- <delete file="${error.log.file}"/>  -->
+        <!-- <delete dir="${sources.dir}"/>  -->
+        <!-- <delete dir="${maven.repo.dir}"/>  -->
+    </target> 
+ 
+    <target name="help"> 
+        <echo message="This script automates the process of building an offline repository."/> 
+        <echo message=""/> 
+        <echo message="Usage:"/> 
+        <echo message=""/> 
+        <echo message="ant -f build-repo.xml &lt;options&gt;"/> 
+        <echo message=""/> 
+        <echo message="  Required Options:"/> 
+        <echo message="  ----------------"/> 
+        <echo message=""/> 
+        <echo message="    -Dtype=[cxf|camel|activemq|servicemix33|servicemix34|servicemix35|servicemix40]"/> 
+        <echo message="       * Specifies the product the repository is being built for."/> 
+        <echo message=""/> 
+        <echo message="    -Dversion=&lt;version&gt;"/> 
+        <echo message="       * The version of the product (without the '-fuse')"/> 
+        <echo message=""/> 
+        <echo message="  Optional Options:"/> 
+        <echo message="  ----------------"/> 
+        <echo message=""/> 
+        <echo message="    -Dcxf.maven=&lt;path&gt;"/> 
+        <echo message="       * Maven to use to build any CXF sources."/> 
+        <echo message=""/> 
+        <echo message="    -Dcamel.maven=&lt;path&gt;"/> 
+        <echo message="       * Maven to use to build any Camel sources."/> 
+        <echo message=""/> 
+        <echo message="    -Dactivemq.maven=&lt;path&gt;"/> 
+        <echo message="       * Maven to use to build any ActiveMQ sources."/> 
+        <echo message=""/> 
+        <echo message="    -Dservicemix.maven=&lt;path&gt;"/> 
+        <echo message="       * Maven to use to build any ServiceMix sources."/> 
+        <echo message=""/> 
+        <echo message="    -Dmaven.home=&lt;path&gt;"/> 
+        <echo message="       * Default maven used for source builds when a specific one is not provided."/> 
+        <echo message=""/> 
+        <echo message="    -Dautomated.build=[true|false]"/> 
+        <echo message="       * Specifies whether the script is being run in an automated build.  In an"/> 
+        <echo message="         automated build, errors are logged but they do not stop the build.  The"/> 
+        <echo message="         build continues until all source builds have been attempted."/> 
+        <echo message=""/> 
+    </target> 
+</project>

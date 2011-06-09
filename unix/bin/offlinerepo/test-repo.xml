@@ -1,0 +1,318 @@
+<project name="Test FUSE Offline Repository" basedir="." default="run.tests"> 
+ 
+    <!-- Maven properties.  Default to Unix behaviour --> 
+    <property name="maven.home" value="/opt/tools/maven"/> 
+ 
+    <!-- Properties to specify script behaviour --> 
+    <dirname property="current.dir" file="${ant.file}"/> 
+    <property name="work.dir" value="${current.dir}/work"/> 
+    <property name="test.complete.file" value="${work.dir}/test.completed"/> 
+ 
+    <!-- Try to load the project.summary file --> 
+    <loadproperties srcFile="${current.dir}/project.summary"/> 
+ 
+    <!-- Fail if we don't provide the products or versions to test --> 
+    <fail message="Unable to load repository and source versions from ${current.dir}/project.summary file."> 
+        <condition> 
+            <not> 
+                <isset property="repo.type"/> 
+            </not> 
+        </condition> 
+    </fail> 
+ 
+    <!-- Default the source type to be the same as the repository type --> 
+    <property name="source.types" value="${repo.type}"/> 
+ 
+ 
+    <!-- Set properties that will be used to trigger the appropriate build targets --> 
+    <condition property="test.cxf"> 
+        <and> 
+            <contains string="${source.types}" substring="cxf"/> 
+            <isset property="cxf.version"/> 
+        </and> 
+    </condition> 
+    <condition property="test.camel"> 
+        <and> 
+            <contains string="${source.types}" substring="camel"/> 
+            <isset property="camel.version"/> 
+        </and> 
+    </condition> 
+    <condition property="test.activemq"> 
+        <and> 
+            <contains string="${source.types}" substring="activemq"/> 
+            <isset property="activemq.version"/> 
+        </and> 
+    </condition> 
+    <!-- Servicemix has different build instruction for different versions --> 
+    <condition property="test.servicemix.3.3.x"> 
+        <and> 
+            <contains string="${source.types}" substring="servicemix"/> 
+            <isset property="servicemix.version"/> 
+            <equals arg1="${servicemix.type}" arg2="3.3"/> 
+        </and> 
+    </condition> 
+    <condition property="test.servicemix.3.4.x"> 
+        <and> 
+            <contains string="${source.types}" substring="servicemix"/> 
+            <isset property="servicemix.version"/> 
+            <equals arg1="${servicemix.type}" arg2="3.4"/> 
+        </and> 
+    </condition> 
+    <condition property="test.servicemix.4.x"> 
+        <and> 
+            <contains string="${source.types}" substring="servicemix"/> 
+            <isset property="servicemix.version"/> 
+            <equals arg1="${servicemix.type}" arg2="4.0"/> 
+        </and> 
+    </condition> 
+ 
+ 
+    <!-- URLs to find the offline repo and the servicemix source distro --> 
+    <property name="repo.url" 
+              value="http://repo.open.iona.com/maven2/org/apache/${repo.type}/offline-repo-${repo.type}"/> 
+    <property name="source.url" 
+              value="http://repo.open.iona.com/maven2/org/apache"/> 
+ 
+ 
+    <!-- Downloads the offline repository and extracts it to a know work location --> 
+    <macrodef name="get-repo"> 
+        <attribute name="product"/> 
+        <attribute name="version"/> 
+ 
+        <sequential> 
+            <!-- This will only take effect if the property is not already set --> 
+            <condition property="repo.location"
+                       value="file://${repo.file}"
+                       else="${repo.url}/@{version}/offline-repo-@{product}-@{version}.tgz"> 
+                <and> 
+                    <isset property="repo.file"/> 
+                </and> 
+            </condition> 
+            <get src="${repo.location}"
+                 dest="${work.dir}/repo.tgz"/> 
+            <untar src="${work.dir}/repo.tgz" compression="gzip" dest="${work.dir}"/> 
+        </sequential> 
+    </macrodef> 
+ 
+ 
+    <!-- Downloads the corresponding version of the servicemix source distribution --> 
+    <macrodef name="get-source"> 
+        <attribute name="product"/> 
+        <attribute name="version"/> 
+        <attribute name="destDir" default="${work.dir}"/> 
+        <attribute name="srcDist" default=""/> 
+ 
+        <sequential> 
+            <!-- Allow for overrides of the source distribution --> 
+            <echo message="srcDist: @{srcDist}"/> 
+            <condition property="source.distribution" value="@{srcDist}"
+                       else="${source.url}/@{product}/apache-@{product}/@{version}/apache-@{product}-@{version}-src.zip"> 
+                <not> 
+                    <equals arg1="@{srcDist}" arg2=""/> 
+                </not> 
+            </condition> 
+            <echo message="Source distribution: ${source.distribution}"/> 
+            <get src="${source.distribution}" dest="${work.dir}/src.zip"/> 
+            <unzip src="${work.dir}/src.zip" dest="@{destDir}"/> 
+        </sequential> 
+    </macrodef> 
+ 
+ 
+    <macrodef name="build-maven-offline"> 
+        <attribute name="offlineRepo" default="${work.dir}/maven_repo"/> 
+        <attribute name="dir" default="${work.dir}"/> 
+        <attribute name="goal" default="install"/> 
+        <attribute name="extraArgs" default=""/> 
+ 
+        <sequential> 
+            <echo message="Working directory: @{dir}"/> 
+            <echo message="Running ${maven.home}/bin/mvn -o -Dmaven.repo.local=@{offlineRepo} -Dmaven.test.failure.ignore=true -fae @{extraArgs} @{goal}"/> 
+            <exec executable="${maven.home}/bin/mvn"
+                  dir="@{dir}"
+                  failonerror="true"> 
+                <arg value="-o"/> 
+                <arg value="-Dmaven.repo.local=@{offlineRepo}"/> 
+                <arg value="-Dmaven.test.failure.ignore=true"/> 
+                <arg value="-fae"/> 
+                <arg value="@{extraArgs}"/> 
+                <arg value="@{goal}"/> 
+            </exec> 
+        </sequential> 
+    </macrodef> 
+ 
+ 
+    <target name="test.activemq.source" if="test.activemq"> 
+        <get-source product="activemq" version="${activemq.version}"/> 
+        <build-maven-offline dir="${work.dir}/apache-activemq-${activemq.version}/src" extraArgs="-fae"/> 
+ 
+        <!-- Echo to the test.completed file so that we can later tell that the
+             tests ran successfully. --> 
+        <echo message="Done" file="${test.complete.file}"/> 
+    </target> 
+ 
+ 
+    <target name="test.camel.source" if="test.camel"> 
+        <get-source product="camel" version="${camel.version}"/> 
+        <build-maven-offline dir="${work.dir}/apache-camel-${camel.version}" extraArgs="-fae"/> 
+ 
+        <!-- Echo to the test.completed file so that we can later tell that the
+             tests ran successfully. --> 
+        <echo message="Done" file="${test.complete.file}"/> 
+    </target> 
+ 
+ 
+    <target name="test.cxf.source" if="test.cxf"> 
+        <get-source product="cxf" version="${cxf.version}"/> 
+        <build-maven-offline dir="${work.dir}/apache-cxf-${cxf.version}-src" extraArgs="-fae"/> 
+ 
+        <!-- Echo to the test.completed file so that we can later tell that the
+             tests ran successfully. --> 
+        <echo message="Done" file="${test.complete.file}"/> 
+    </target> 
+ 
+ 
+    <target name="test.servicemix.3.3.x.source" if="test.servicemix.3.3.x"> 
+        <get-source product="servicemix" version="${servicemix.version}"/> 
+        <build-maven-offline dir="${work.dir}/apache-servicemix-${servicemix.version}/src" 
+                             extraArgs="-Pstep1" goal=""/> 
+        <build-maven-offline dir="${work.dir}/apache-servicemix-${servicemix.version}/src" 
+                             extraArgs="-Pstep2" goal=""/> 
+ 
+        <!-- Echo to the test.completed file so that we can later tell that the
+             tests ran successfully. --> 
+        <echo message="Done" file="${test.complete.file}"/> 
+    </target> 
+ 
+ 
+    <target name="test.servicemix.3.4.x.source" if="test.servicemix.3.4.x"> 
+        <get-source product="servicemix" version="${servicemix.version}"/> 
+        <build-maven-offline dir="${work.dir}/apache-servicemix-${servicemix.version}/src" extraArgs="-fae"/> 
+        <!-- Echo to the test.completed file so that we can later tell that the
+             tests ran successfully. --> 
+        <echo message="Done" file="${test.complete.file}"/> 
+    </target> 
+    
+    
+    <target name="test.servicemix.4.x.source" if="test.servicemix.4.x"> 
+        <get-source product="servicemix" version="${servicemix.version}"
+                    srcDist="${source.url}/servicemix/apache-servicemix/${servicemix.version}/apache-servicemix-${servicemix.version}-src.zip"/> 
+        <build-maven-offline dir="${work.dir}/apache-servicemix-${servicemix.version}/src" extraArgs="-fae"/> 
+ 
+        <!-- Echo to the test.completed file so that we can later tell that the
+             tests ran successfully. --> 
+        <echo message="Done" file="${test.complete.file}"/> 
+    </target> 
+ 
+ 
+    <target name="test.source.builds"> 
+        <get-repo product="${repo.type}" version="${repo.version}"/> 
+ 
+        <!-- List all possible builds here.  Condition properties should allow only one to run --> 
+        <antcall target="test.cxf.source"/> 
+        <antcall target="test.camel.source"/> 
+        <antcall target="test.activemq.source"/> 
+        <antcall target="test.servicemix.3.3.x.source"/> 
+        <antcall target="test.servicemix.3.4.x.source"/> 
+        <antcall target="test.servicemix.4.x.source"/> 
+ 
+        <!-- Fail if none of the builds were run --> 
+        <fail message="No builds were run. [source.types=${source.types}; repo.type=${repo.type}]"> 
+            <condition> 
+                <not> 
+                    <available file="${test.complete.file}"/> 
+                </not> 
+            </condition> 
+        </fail> 
+    </target> 
+ 
+    
+    <target name="init"> 
+        <condition property="cxf.build.message" 
+                   value="     * CXF ${cxf.version}${line.separator}" else=""> 
+            <isset property="test.cxf"/> 
+        </condition> 
+        <condition property="camel.build.message" 
+                   value="     * Camel ${camel.version}${line.separator}" else=""> 
+            <isset property="test.camel"/> 
+        </condition> 
+        <condition property="activemq.build.message" 
+                   value="     * ActiveMQ ${activemq.version}${line.separator}" else=""> 
+            <isset property="test.activemq"/> 
+        </condition> 
+        <condition property="servicemix.build.message" 
+                   value="     * ServiceMix ${servicemix.version}${line.separator}" else=""> 
+            <or> 
+                <isset property="test.servicemix.3.3.x"/> 
+                <isset property="test.servicemix.3.4.x"/> 
+                <isset property="test.servicemix.4.x"/> 
+            </or> 
+        </condition> 
+ 
+        <echo message="Using repository for ${repo.type} (${repo.version})"/> 
+        <echo/> 
+        <echo message="  Will tests the following source builds:"/> 
+        <echo message="${cxf.build.message}${camel.build.message}${activemq.build.message}${servicemix.build.message}"/> 
+ 
+        <mkdir dir="${work.dir}"/> 
+        <delete file="${test.complete.file}"/> 
+    </target> 
+ 
+ 
+    <target name="run.tests" depends="init,test.source.builds"> 
+        <!-- A separate target in case we need to add other tests --> 
+    </target> 
+ 
+ 
+    <target name="help"> 
+        <echo message="This script automates the process of testing an offline repository."/> 
+        <echo/> 
+        <echo message="Usage:"/> 
+        <echo/> 
+        <echo message="ant -f test-repo.xml &lt;options&gt;"/> 
+        <echo/> 
+        <echo message="  Optional Options:"/> 
+        <echo message="  ----------------"/> 
+        <echo/> 
+        <echo message="    -Drepo.file=&lt;absolute-path&gt;"/> 
+        <echo message="       * Location of a repository .tgz file.  Note this needs to be an"/> 
+        <echo message="         absolute path."/> 
+        <echo/> 
+        <echo message="    -Dsource.types=&lt;source-types&gt;"/> 
+        <echo message="       * Comma separated list of source types to test.  Valid values"/> 
+        <echo message="         are cxf, camel, activemq, and servicemix.  One or more of these"/> 
+        <echo message="         can be specified."/> 
+        <echo/> 
+        <echo message="The script also make use of a project.summary file which provides"/> 
+        <echo message="properties about the offline repository being tested.  This file"/> 
+        <echo message="requires the following properties be set:"/> 
+        <echo/> 
+        <echo message="repo.type=&lt;type&gt;"/> 
+        <echo message="repo.version=&lt;version&gt;"/> 
+        <echo/> 
+        <echo message="The usage of following will depend on the projects used to build"/> 
+        <echo message="the offline repository being tested:"/> 
+        <echo/> 
+        <echo message="cxf.version=&lt;version&gt;"/> 
+        <echo message="camel.version=&lt;version&gt;"/> 
+        <echo message="activemq.version=&lt;version&gt;"/> 
+        <echo message="servicemix.version=&lt;version&gt;"/> 
+        <echo message="servicemix.type=&lt;type of servicemix&gt;"/> 
+        <echo/> 
+        <echo message="Note: The servicemix.type property specifies the type of ServiceMix source"/> 
+        <echo message="      used to build the offline repository.  Valid values are 3.3, 3.4, or 4.0."/> 
+        <echo/> 
+        <echo message="The following is an example for a ServiceMix 3.3.1.13 repository:"/> 
+        <echo/> 
+        <echo message="repo.type=servicemix"/> 
+        <echo message="repo.version=3.3.1.13-fuse"/> 
+        <echo message="cxf.version=2.0.9.2-fuse"/> 
+        <echo message="camel.version=1.5.3.0-fuse"/> 
+        <echo message="activemq.version=5.0.0.25-fuse"/> 
+        <echo message="servicemix.version=3.3.1.13-fuse"/> 
+        <echo message="servicemix.type=3.3"/> 
+        <echo/> 
+        <echo message="Non ServiceMix repositories will not use all of these properties."/> 
+        <echo/> 
+    </target> 
+ 
+</project>
