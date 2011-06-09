@@ -1,5 +1,18 @@
 <?xml version="1.0"?>
 <settings>
+  <profiles> 
+    <profile>
+      <id>release</id>
+      <properties>
+        <gpg.passphrase>MY.PASSPHRASE.HERE!</gpg.passphrase>
+
+<!--
+        <release-altGitURL>ADD SOME URL HERE FOR RELEASING IF YOU MUST...</release-altGitURL>
+-->
+      </properties>
+    </profile>
+  </profiles>	
+  
 	<servers>
     <server>
       <id>fusesource-proxy</id>
@@ -83,6 +96,5 @@
       <url>http://repo.fusesource.com/nexus/content/groups/m2-proxy</url>
     </mirror>
   </mirrors>
-
 
 </settings>
