@@ -18,8 +18,8 @@ Commands
 
 ### Releasing
 
-* releaseprepare does a "mvn release:prepare" setting the release-altGitURL property to the local git file system 
-* releaseperform does a "mvn release:perform" setting the release-altGitURL property to the local git file system 
+* releaseprepare does a "mvn release:prepare" setting the release-altGitURL property to the local git file system & release profile 
+* releaseperform does a "mvn release:perform" setting the release-altGitURL property to the local git file system & release profile 
 
 
 # Scala
