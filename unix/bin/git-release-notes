@@ -15,10 +15,10 @@
 #
 #  Example: git release-notes karaf-2.0.0-fuse-01-00 --since karaf-2.0.0
 
+require 'logger'
 require 'net/http'
 require 'rdoc/usage'
 require 'rubygems'
-require 'httpclient'
 require 'jira4r'
 require 'rexml/document'
 require 'rss/0.9'
@@ -110,9 +110,6 @@ end
 class FuseJira
 
   def initialize
-    @jira = Jira4R::JiraTool.new(2, "http://fusesource.com/issues")
-    @jira.logger = LOG
-    @jira.login("cruise", "cruise01")
   end
 
   def project(key)
@@ -144,12 +141,10 @@ class ReleaseNotes
   end
   
   def jira(id) 
-    if (id =~ /CXF/ or id =~ /FELIX/ or id =~ /KARAF/) then
-      ["https://issues.apache.org/jira"]
-    elsif (id =~ /ESB/ or id=~ /MR/ or id=~ /SF/ or id=~ /MB/) then
+    if (id =~ /^ESB/ or id=~ /^MR/ or id=~ /^SF/ or id=~ /^MB/) then
       ["http://fusesource.com/issues"]
     else
-      ["https://issues.apache.org/jira", "https://issues.apache.org/activemq"]
+      ["https://issues.apache.org/jira"]
     end
   end
   
@@ -160,7 +155,6 @@ class ReleaseNotes
   def jiraHtmlUrl(id)
     jira(id).map { |jira| "#{jira}/browse/#{id}" }
   end
-  
 
   def findMatchingFuseIssue(id)
     results = jiraHtmlUrl(id).each { |url|
@@ -261,11 +255,15 @@ customfieldvalue/text()").to_s
 
 end
 
-RDoc::usage unless ARGV.length == 3 and ARGV[1] == "--since" and File.exist?("release-notes.cfg")
+RDoc::usage unless ARGV.length == 3 and ARGV[1] == "--since"
 
-config = YAML::load(File.open('release-notes.cfg'))
+project = if (File.exist?("release-notes.cfg")) then
+  YAML::load(File.open('release-notes.cfg'))['project']
+else
+  "Project"
+end
 
-relnotes = ReleaseNotes.new(config['project'], ARGV[0])
+relnotes = ReleaseNotes.new(project, ARGV[0])
 relnotes.addFromGitLog(ARGV[2])
 
 relnotes.to_wiki("release-notes.wiki")
