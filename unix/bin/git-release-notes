@@ -141,7 +141,7 @@ class ReleaseNotes
   end
   
   def jira(id) 
-    if (id =~ /^ESB/ or id=~ /^MR/ or id=~ /^SF/ or id=~ /^MB/) then
+    if (id =~ /^ESB/ or id =~ /^FON/ or id=~ /^MR/ or id=~ /^SF/ or id=~ /^MB/) then
       ["http://fusesource.com/issues"]
     else
       ["https://issues.apache.org/jira"]
