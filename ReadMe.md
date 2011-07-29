@@ -20,7 +20,7 @@ Commands
 
 * releaseprepare does a "mvn release:prepare" setting the release-altGitURL property to the local git file system & release profile 
 * releaseperform does a "mvn release:perform" setting the release-altGitURL property to the local git file system & release profile 
-
+* check-offline-repository validates the contents of an offline repository by trying to build everything using only the artifacts provided
 
 # Scala
 

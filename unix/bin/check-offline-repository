@@ -1,0 +1,52 @@
+#!/bin/bash
+
+if [ $# != 1 ] ; then
+  echo 
+  echo " $(basename $0) is a script to verify the contents of an offline repository."
+  echo " The script will untar the offline repository file and then tries to build "
+  echo " everything again.  To ensure that the offline repository is complete, you "
+  echo " should run this script without a connection to the internet"
+  echo
+  echo "    Usage: $(basename $0) <offline repository tarball file>";
+  echo
+  exit -1
+fi
+
+if [ "x$MAVEN_HOME" == "x" ]; then
+  MVN=`which mvn`
+else
+  MVN=$MAVEN_HOME/bin/mvn
+fi
+
+echo
+$MVN -v
+
+TARBALL=$1
+
+WORKDIR=`mktemp -d -t offline`
+cd $WORKDIR
+
+echo
+echo "Extracting $1 in a temporary directory"
+tar xzf $TARBALL
+
+REPOSITORY=$WORKDIR/repo
+SOURCES=$WORKDIR/sources
+SETTINGS="$WORKDIR/settings.xml"
+
+echo "<settings>" > $SETTINGS
+echo "  <localRepository>$REPOSITORY</localRepository>" >> $SETTINGS
+echo "</settings>" >> $SETTINGS
+export MAVEN_OPTS="-XX:MaxPermSize=196m -Xmx1024m"
+
+echo
+for src in $SOURCES/*; do
+  project=$(basename $src)
+  echo "Building $project"  
+  cd $src
+  mvn -o -s $SETTINGS -Dmaven.test.skip.exec=true clean install &> $WORKDIR/$project.log
+  if [ "$?" -ne "0" ]; then
+    echo "  WARNING - build failed for $project"
+    echo "   review $WORKDIR/$project.log for more details" 
+  fi
+done
