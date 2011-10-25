@@ -41,12 +41,14 @@ class Git
   end
   
   def log(from, to)
-    `git log #{from}..#{to}`
+    base=`git merge-base #{from} #{to}`.chomp
+    `git log #{base}..#{to}`
   end
   
   def self.readLog(from, to) 
     temp_file = Tempfile.new('release_notes')
-    system("git log --pretty='%B%n--------------------------------' #{from}..#{to} > #{temp_file.path}")
+    base=`git merge-base #{from} #{to}`.chomp
+    system("git log --pretty='%B%n--------------------------------' #{base}..#{to} > #{temp_file.path}")
     
     commit = Array.new
     IO.foreach(temp_file.path) { |line|
