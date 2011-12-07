@@ -156,7 +156,7 @@
 	 			<arg value="--username"/>
 				<arg value="hudson"/>
 				<arg value="--password"/>
-				<arg value="4uds0n"/>    
+				<arg value="UPDATE_ME"/>    
 				<arg value="--non-interactive"/>				
                 <arg value="@{url}"/> 
                 <arg value="@{dest}"/> 
