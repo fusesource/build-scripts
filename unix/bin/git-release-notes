@@ -29,10 +29,10 @@ require 'yaml'
 include REXML
 
 ISSUE_NUMBER=/[A-Z][A-Z0-9]{1,10}-[0-9]{1,4}/
-FUSE_VERSION=/[0-9]{1,4}\.[0-9]{1,2}\.[0-9]{1}-fuse-[0-9]{2}-[0-9]{2}/
+FUSE_VERSION=/[0-9]{1,4}\.[0-9]{1,2}\.[0-9]{1}-redhat-[0-9]{2}-[0-9]{2}/
 
 LOG = Logger.new(STDOUT)
-LOG.level = Logger::WARN
+LOG.level = Logger::DEBUG
 
 class Git
   
@@ -48,7 +48,7 @@ class Git
   def self.readLog(from, to) 
     temp_file = Tempfile.new('release_notes')
     base=`git merge-base #{from} #{to}`.chomp
-    system("git log --pretty='%B%n--------------------------------' #{base}..#{to} > #{temp_file.path}")
+    system("git log --pretty='%s%n%b%n--------------------------------' #{base}..#{to} > #{temp_file.path}")
     
     commit = Array.new
     IO.foreach(temp_file.path) { |line|
@@ -142,14 +142,14 @@ class ReleaseNotes
     @issues = Hash.new
   end
   
-  def jira(id) 
-    if (id =~ /^ESB/ or id =~ /^FON/ or id=~ /^MR/ or id=~ /^SF/ or id=~ /^MB/) then
-      ["http://fusesource.com/issues"]
+  def jira(id)
+    if (id =~ /^ESB/ or id =~ /^FON/ or id=~ /^MR/ or id=~ /^SF/ or id=~ /^MB/ or id=~ /^ENTESB/ or id=~ /^ENTMQ/ or id=~ /^FABRIC/ or id=~ /^FMC/) then
+      ["https://issues.jboss.org"]
     else
       ["https://issues.apache.org/jira"]
     end
   end
-  
+ #x https://issues.apache.org/jira/si/jira.issueviews:issue-xml/CXF-4939/CXF-4939.xml 
   def jiraRssUrl(id)
     jira(id).map { |jira| "#{jira}/si/jira.issueviews:issue-xml/#{id}/#{id}.xml" }
   end
@@ -160,7 +160,7 @@ class ReleaseNotes
 
   def findMatchingFuseIssue(id)
     results = jiraHtmlUrl(id).each { |url|
-        readRssFeed("http://fusesource.com/issues/sr/jira.issueviews:searchrequest-xml/temp/SearchRequest.xml?customfield_10003=#{url}&sorter/field=issuekey&sorter/order=DESC&tempMax=1000") { |issue,item|
+        readRssFeed("https://issues.jboss.org/sr/jira.issueviews:searchrequest-xml/temp/SearchRequest.xml?customfield_10003=#{url}&sorter/field=issuekey&sorter/order=DESC&tempMax=1000") { |issue,item|
            puts "     matches #{issue}"
            return issue if issue
         }
@@ -177,7 +177,7 @@ class ReleaseNotes
     puts("...Project FUSE #{@project} -> #{project}")
     puts("...Version #{@version} -> #{version}")
 
-    "http://fusesource.com/issues/sr/jira.issueviews:searchrequest-xml/temp/SearchRequest.xml?pid=#{project}&resolution=1&resolution=6&fixfor=#{version}&sorter/field=issuekey&sorter/order=DESC&tempMax=1000"
+    "httpis://issues.jboss.org/sr/jira.issueviews:searchrequest-xml/temp/SearchRequest.xml?pid=#{project}&resolution=1&resolution=6&fixfor=#{version}&sorter/field=issuekey&sorter/order=DESC&tempMax=1000"
   end
 
   def addFuseIssues()
@@ -201,19 +201,20 @@ customfieldvalue/text()").to_s
     @date = Date.parse(log.select {|line| line =~ /^Date:/}.first[6..-1])
    
     Git.readLog(previous, @tag) { |commit|
+      puts "#{commit}"
       next if Svnmerge.isBlocked?(commit)
       commit.each { |line|
         line.scan(ISSUE_NUMBER).uniq.each { |id|
           readRssFeed(jiraRssUrl(id)) { |issue,item|
             puts "...#{issue}"
             next if not issue
-            fuse = findMatchingFuseIssue(id)
-            if (fuse) then
-              fuse.links << issue.url
-              @issues[fuse] = id 
-            else
-              @issues[issue] = id if issue
-            end
+            #fuse = findMatchingFuseIssue(id)
+            #if (fuse) then
+            #  fuse.links << issue.url
+            #  @issues[fuse] = id 
+            #else
+            @issues[issue] = id if issue
+            #end
           }
         }
       }
